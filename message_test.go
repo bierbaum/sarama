@@ -1,6 +1,8 @@
 package sarama
 
-import "testing"
+import (
+	"testing"
+)
 
 var (
 	emptyMessage = []byte{
@@ -10,10 +12,30 @@ var (
 		0xFF, 0xFF, 0xFF, 0xFF, // key
 		0xFF, 0xFF, 0xFF, 0xFF} // value
 
+	emptyMessageV1 = []byte{
+		0xFE, 0x1C, 0x36, 0x20, // CRC
+		0x01, // magic version byte
+		0x00, // attribute flags
+		0x00, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEE, // timestamp
+		0xFF, 0xFF, 0xFF, 0xFF, // key
+		0xFF, 0xFF, 0xFF, 0xFF} // value
+
 	emptyGzipMessage = []byte{
 		97, 79, 149, 90, //CRC
 		0x00,                   // magic version byte
 		0x01,                   // attribute flags
+		0xFF, 0xFF, 0xFF, 0xFF, // key
+		// value
+		0x00, 0x00, 0x00, 0x17,
+		0x1f, 0x8b,
+		0x08,
+		0, 0, 9, 110, 136, 0, 255, 1, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 0}
+
+	emptyGzipMessageV1 = []byte{
+		0xD4, 0x26, 0x23, 0xB5, // CRC
+		0x01,                                           // magic version byte
+		0x01,                                           // attribute flags
+		0x00, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEE, // timestamp
 		0xFF, 0xFF, 0xFF, 0xFF, // key
 		// value
 		0x00, 0x00, 0x00, 0x17,
@@ -32,10 +54,33 @@ var (
 		0, 0, 0, 1, // default version
 		0, 0, 0, 22, 52, 0, 0, 25, 1, 16, 14, 227, 138, 104, 118, 25, 15, 13, 1, 8, 1, 0, 0, 62, 26, 0}
 
+	emptyBulkSnappyMessageV1 = []byte{
+		0x2E, 0xD6, 0xE5, 0x6A, // CRC
+		0x01,                   // magic version byte
+		0x02,                   // attribute flags
+		0x00, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEE, // timestamp
+		0xFF, 0xFF, 0xFF, 0xFF, // key
+		0, 0, 0, 42,
+		130, 83, 78, 65, 80, 80, 89, 0, // SNAPPY magic
+		0, 0, 0, 1, // min version
+		0, 0, 0, 1, // default version
+		0, 0, 0, 22, 52, 0, 0, 25, 1, 16, 14, 227, 138, 104, 118, 25, 15, 13, 1, 8, 1, 0, 0, 62, 26, 0}
+
 	emptyBulkGzipMessage = []byte{
 		139, 160, 63, 141, //CRC
 		0x00,                   // magic version byte
 		0x01,                   // attribute flags
+		0xFF, 0xFF, 0xFF, 0xFF, // key
+		0x00, 0x00, 0x00, 0x27, // len
+		0x1f, 0x8b, // Gzip Magic
+		0x08, // deflate compressed
+		0, 0, 0, 0, 0, 0, 0, 99, 96, 128, 3, 190, 202, 112, 143, 7, 12, 12, 255, 129, 0, 33, 200, 192, 136, 41, 3, 0, 199, 226, 155, 70, 52, 0, 0, 0}
+
+	emptyBulkGzipMessageV1 = []byte{
+		0x58, 0x9B, 0xB6, 0x1E, // CRC
+		0x01,                   // magic version byte
+		0x01,                   // attribute flags
+		0x00, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEF, 0xEE, // timestamp
 		0xFF, 0xFF, 0xFF, 0xFF, // key
 		0x00, 0x00, 0x00, 0x27, // len
 		0x1f, 0x8b, // Gzip Magic
@@ -54,7 +99,7 @@ func TestMessageEncoding(t *testing.T) {
 
 func TestMessageDecoding(t *testing.T) {
 	message := Message{}
-	testDecodable(t, "empty", &message, emptyMessage)
+	testDecodable(t, "empty V0", &message, emptyMessage)
 	if message.Codec != CompressionNone {
 		t.Error("Decoding produced compression codec where there was none.")
 	}
@@ -68,7 +113,25 @@ func TestMessageDecoding(t *testing.T) {
 		t.Error("Decoding produced set where there was none.")
 	}
 
-	testDecodable(t, "empty gzip", &message, emptyGzipMessage)
+	testDecodable(t, "empty V1", &message, emptyMessageV1)
+	if message.Codec != CompressionNone {
+		t.Error("Decoding produced compression codec where there was none.")
+	}
+	if message.Timestamp != 0x00EFEFEFEFEFEFEE {
+		t.Errorf("Decoding did not have the correct timestamp (was %d)",
+			message.Timestamp)
+	}
+	if message.Key != nil {
+		t.Error("Decoding produced key where there was none.")
+	}
+	if message.Value != nil {
+		t.Error("Decoding produced value where there was none.")
+	}
+	if message.Set != nil {
+		t.Error("Decoding produced set where there was none.")
+	}
+
+	testDecodable(t, "empty gzip V0", &message, emptyGzipMessage)
 	if message.Codec != CompressionGZIP {
 		t.Error("Decoding produced incorrect compression codec (was gzip).")
 	}
@@ -78,6 +141,22 @@ func TestMessageDecoding(t *testing.T) {
 	if message.Value == nil || len(message.Value) != 0 {
 		t.Error("Decoding produced nil or content-ful value where there was an empty array.")
 	}
+
+	testDecodable(t, "empty gzip V1", &message, emptyGzipMessageV1)
+	if message.Codec != CompressionGZIP {
+		t.Error("Decoding produced incorrect compression codec (was gzip).")
+	}
+	if message.Timestamp != 0x00EFEFEFEFEFEFEE {
+		t.Errorf("Decoding did not have the correct timestamp (was %d)",
+			message.Timestamp)
+	}
+	if message.Key != nil {
+		t.Error("Decoding produced key where there was none.")
+	}
+	if message.Value == nil || len(message.Value) != 0 {
+		t.Error("Decoding produced nil or content-ful value where there was an empty array.")
+	}
+
 }
 
 func TestMessageDecodingBulkSnappy(t *testing.T) {
@@ -94,6 +173,12 @@ func TestMessageDecodingBulkSnappy(t *testing.T) {
 	} else if len(message.Set.Messages) != 2 {
 		t.Errorf("Decoding produced a set with %d messages, but 2 were expected.", len(message.Set.Messages))
 	}
+
+	testDecodable(t, "bulk snappy V1", &message, emptyBulkSnappyMessageV1)
+	if message.Timestamp != 0x00EFEFEFEFEFEFEE {
+		t.Errorf("Decoding did not have the correct timestamp (was %d)",
+			message.Timestamp)
+	}
 }
 
 func TestMessageDecodingBulkGzip(t *testing.T) {
@@ -109,5 +194,11 @@ func TestMessageDecodingBulkGzip(t *testing.T) {
 		t.Error("Decoding produced no set, but one was expected.")
 	} else if len(message.Set.Messages) != 2 {
 		t.Errorf("Decoding produced a set with %d messages, but 2 were expected.", len(message.Set.Messages))
+	}
+
+	testDecodable(t, "bulk gzip V1", &message, emptyBulkGzipMessageV1)
+	if message.Timestamp != 0x00EFEFEFEFEFEFEE {
+		t.Errorf("Decoding did not have the correct timestamp (was %d)",
+			message.Timestamp)
 	}
 }

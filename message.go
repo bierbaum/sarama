@@ -23,13 +23,17 @@ const (
 
 // The spec just says: "This is a version id used to allow backwards compatible evolution of the message
 // binary format." but it doesn't say what the current value is, so presumably 0...
-const messageFormat int8 = 0
+const messageFormatV0 int8 = 0
+
+// "Version 1" message format (0.10+), which includes a timestamp
+const messageFormatV1 int8 = 1
 
 type Message struct {
-	Codec CompressionCodec // codec used to compress the message contents
-	Key   []byte           // the message key, may be nil
-	Value []byte           // the message contents
-	Set   *MessageSet      // the message set a message might wrap
+	Codec     CompressionCodec // codec used to compress the message contents
+	Key       []byte           // the message key, may be nil
+	Value     []byte           // the message contents
+	Set       *MessageSet      // the message set a message might wrap
+	Timestamp int64            // the message timestamp (supported in 0.10+)
 
 	compressedCache []byte
 }
@@ -37,7 +41,7 @@ type Message struct {
 func (m *Message) encode(pe packetEncoder) error {
 	pe.push(&crc32Field{})
 
-	pe.putInt8(messageFormat)
+	pe.putInt8(messageFormatV0)
 
 	attributes := int8(m.Codec) & compressionCodecMask
 	pe.putInt8(attributes)
@@ -93,15 +97,28 @@ func (m *Message) decode(pd packetDecoder) (err error) {
 	if err != nil {
 		return err
 	}
-	if format != messageFormat {
-		return PacketDecodingError{"unexpected messageFormat"}
+	switch format {
+	case messageFormatV0:
+		break
+	case messageFormatV1:
+		break
+	default:
+		return PacketDecodingError{
+			fmt.Sprintf("unsupported messageFormat (version %d)", format),
+		}
 	}
-
 	attribute, err := pd.getInt8()
 	if err != nil {
 		return err
 	}
 	m.Codec = CompressionCodec(attribute & compressionCodecMask)
+
+	// V1 includes a timestamp
+	if format == messageFormatV1 {
+		if m.Timestamp, err = pd.getInt64(); err != nil {
+			return err
+		}
+	}
 
 	m.Key, err = pd.getBytes()
 	if err != nil {
