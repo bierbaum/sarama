@@ -14,6 +14,7 @@ type ConsumerMessage struct {
 	Topic      string
 	Partition  int32
 	Offset     int64
+	Timestamp  int64
 }
 
 // ConsumerError is what is provided to the user when an error occurs.
@@ -489,6 +490,7 @@ func (child *partitionConsumer) parseResponse(response *FetchResponse) ([]*Consu
 					Key:       msg.Msg.Key,
 					Value:     msg.Msg.Value,
 					Offset:    msg.Offset,
+					Timestamp: msg.Msg.Timestamp,
 				})
 				child.offset = msg.Offset + 1
 			} else {
